@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Cloud, RefreshCw, Globe, LogOut, Github } from 'lucide-react';
+import { X, Cloud, RefreshCw, Globe, LogOut, Github, Combine } from 'lucide-react';
 import { fetchRandomPhoto, cacheImage } from '../utils/unsplash';
 import WallpaperModal from './WallpaperModal';
 import IconSelector from './IconSelector';
@@ -106,7 +106,7 @@ const Settings = ({
                                     >
                                         <Github className="h-5 w-5 text-white/80 group-hover:text-white transition-colors" />
                                         <div className="flex-1">
-                                            <div className="text-sm text-white font-medium">A New Tab</div>
+                                            <div className="text-sm text-white font-medium">iTab</div>
                                             <div className="text-xs text-white/40">View source on GitHub</div>
                                         </div>
                                     </a>
@@ -726,7 +726,7 @@ const LoginForm = ({ onLogin, showToast, onSyncPull }) => {
                     >
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-medium text-white">智能合并</span>
-                            <GitMerge className="h-5 w-5 text-purple-400" />
+                            <Combine className="h-5 w-5 text-purple-400" />
                         </div>
                         <p className="text-xs text-white/60">
                             智能合并本地和云端数据（去重并保留最新版本）
