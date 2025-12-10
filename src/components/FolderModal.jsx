@@ -48,18 +48,40 @@ const SortableFolderItem = ({ shortcut, onRemove, onEdit, isContextOpen, setCont
         return () => element.removeEventListener('mousemove', handleMouseMove);
     }, []);
 
+    const handleOpen = () => {
+        if (isContextOpen) {
+            setContextShortcutId(null);
+            return;
+        }
+        if (shortcut.url) {
+            window.open(shortcut.url, '_self');
+        }
+    };
+
     return (
         <div
             ref={setNodeRef}
             style={style}
             {...attributes}
             {...listeners}
-            className="group relative flex flex-col items-center gap-2 p-2 rounded-xl transition-colors"
+            className="group relative flex flex-col items-center gap-2 p-2 rounded-xl transition-colors cursor-pointer"
             onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 setContextShortcutId(shortcut.id);
             }}
+            onClick={(e) => {
+                e.stopPropagation();
+                handleOpen();
+            }}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleOpen();
+                }
+            }}
+            role="button"
+            tabIndex={0}
         >
             <div className="relative w-16 h-16">
                 <div ref={iconRef} className="w-full h-full rounded-xl liquid-glass-icon flex items-center justify-center overflow-hidden">
