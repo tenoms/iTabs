@@ -60,6 +60,10 @@ function App() {
   // Track if we're currently pulling data to prevent auto-push during pull
   const isPullingRef = useRef(false);
 
+  const updateLocalTimestamp = () => {
+    localStorage.setItem('last_local_update', new Date().toISOString());
+  };
+
   // Auto-pull from cloud - defined with useCallback to avoid closure issues
   const pullFromCloud = useCallback(async () => {
     if (!syncService.isLoggedIn()) return;
@@ -75,10 +79,18 @@ function App() {
 
       // Get last local update time
       const lastLocalUpdate = localStorage.getItem('last_local_update');
-      const lastSync = syncService.getLastSync();
+      const cloudUpdatedAt = cloudData.updatedAt;
 
-      // If cloud data is newer, use it
-      if (!lastLocalUpdate || (lastSync && new Date(lastSync) > new Date(lastLocalUpdate))) {
+      // Decide whether to apply cloud data:
+      // - If cloud has a timestamp, require it to be newer than local
+      // - If no local timestamp exists, always apply
+      // If timestamps are equal, we assume data is already in sync and do not apply cloud data.
+      // If a custom conflict resolution is needed for equal timestamps, implement it here.
+      const shouldApplyCloud = cloudUpdatedAt
+        ? (!lastLocalUpdate || new Date(cloudUpdatedAt) > new Date(lastLocalUpdate))
+        : !lastLocalUpdate;
+
+      if (shouldApplyCloud) {
         console.log('Pulling data from cloud...');
 
         let updated = false;
@@ -122,6 +134,9 @@ function App() {
         }
 
         if (updated) {
+          if (cloudUpdatedAt) {
+            localStorage.setItem('last_local_update', cloudUpdatedAt);
+          }
           console.log('Cloud data pulled successfully - UI should update now');
         }
       } else {
@@ -347,6 +362,7 @@ function App() {
       completedAt: null
     };
     setTodos(prev => [newTodo, ...prev]);
+    updateLocalTimestamp();
   };
 
   const handleToggleTodo = (id) => {
@@ -359,10 +375,12 @@ function App() {
         completedAt: completed ? new Date().toISOString() : null
       };
     }));
+    updateLocalTimestamp();
   };
 
   const handleDeleteTodo = (id) => {
     setTodos(prev => prev.filter(todo => todo.id !== id));
+    updateLocalTimestamp();
   };
 
   const handleTodoDockClick = () => {
@@ -384,6 +402,7 @@ function App() {
     setNotes(prev => [newNote, ...prev]);
     setActiveNoteId(newNote.id);
     setIsNotesOpen(true);
+    updateLocalTimestamp();
   };
 
   const handleUpdateNote = (id, content) => {
@@ -397,6 +416,7 @@ function App() {
         updatedAt: new Date().toISOString()
       };
     }));
+    updateLocalTimestamp();
   };
 
   const handleDeleteNote = (id) => {
@@ -404,6 +424,7 @@ function App() {
     if (activeNoteId === id) {
       setActiveNoteId(null);
     }
+    updateLocalTimestamp();
   };
 
   const handleSelectNote = (id) => {
@@ -428,6 +449,7 @@ function App() {
     const allNotes = [...notes, ...newNotes];
     setNotes(allNotes);
     localStorage.setItem('notes', JSON.stringify(allNotes));
+    updateLocalTimestamp();
     setToast({ message: `成功导入 ${newNotes.length} 条笔记`, type: 'success' });
     return newNotes.length;
   };
