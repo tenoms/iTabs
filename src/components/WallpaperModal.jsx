@@ -1,6 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { X, Upload, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { fetchPopularPhotos } from '../utils/unsplash';
+
+const CATEGORY_MAP = {
+    '壁纸': 'desktop wallpaper',
+    '自然': 'nature',
+    '3D渲染': '3d renders',
+    '旅行': 'travel',
+    '建筑': 'architecture',
+    '纹理': 'textures',
+    '动物': 'animals',
+    '动漫': 'anime',
+    '极简': 'minimalist'
+};
+
+const CATEGORIES = Object.keys(CATEGORY_MAP);
 
 const WallpaperModal = ({ isOpen, onClose, onSelectWallpaper }) => {
     // State for tabs and photos
@@ -9,35 +23,22 @@ const WallpaperModal = ({ isOpen, onClose, onSelectWallpaper }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState('壁纸');
 
-    // Category mapping: Chinese label -> English search keyword
-    const categoryMap = {
-        '壁纸': 'desktop wallpaper',
-        '自然': 'nature',
-        '3D渲染': '3d renders',
-        '旅行': 'travel',
-        '建筑': 'architecture',
-        '纹理': 'textures',
-        '动物': 'animals',
-        '动漫': 'anime',
-        '极简': 'minimalist'
-    };
-
-    const categories = Object.keys(categoryMap);
-
-    useEffect(() => {
-        if (isOpen && activeTab === 'unsplash') {
-            loadUnsplashPhotos(selectedCategory);
-        }
-    }, [isOpen, activeTab, selectedCategory]);
-
-    const loadUnsplashPhotos = async (category) => {
+    const loadUnsplashPhotos = useCallback(async (category) => {
         setIsLoading(true);
         // Use English keyword for search
-        const query = categoryMap[category];
+        const query = CATEGORY_MAP[category];
         const photos = await fetchPopularPhotos(query);
         setUnsplashPhotos(photos);
         setIsLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        if (isOpen && activeTab === 'unsplash') {
+            // Fetching wallpapers is a legitimate side effect; suppress lint warning about setting state here
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            loadUnsplashPhotos(selectedCategory);
+        }
+    }, [isOpen, activeTab, selectedCategory, loadUnsplashPhotos]);
 
     const handleFileChange = (e) => {
         const file = e.target.files[0];
@@ -91,7 +92,7 @@ const WallpaperModal = ({ isOpen, onClose, onSelectWallpaper }) => {
                         <div className="space-y-6">
                             {/* Categories */}
                             <div className="flex flex-wrap gap-2">
-                                {categories.map(cat => (
+                                {CATEGORIES.map(cat => (
                                     <button
                                         key={cat}
                                         onClick={() => setSelectedCategory(cat)}
