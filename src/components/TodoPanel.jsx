@@ -145,7 +145,9 @@ const TodoPanel = ({
                         <div className="text-sm text-white/50">还没有提醒，添加一个吧。</div>
                     ) : (
                         <div className="space-y-3">
-                            {todos.map((todo) => (
+                            {[...todos]
+                                .sort((a, b) => Number(a.completed) - Number(b.completed))
+                                .map((todo) => (
                                 <TodoItem
                                     key={todo.id}
                                     todo={todo}
