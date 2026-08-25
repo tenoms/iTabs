@@ -1,23 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
 import IconSelector from './IconSelector';
 
 const EditShortcutModal = ({ isOpen, onClose, shortcut, onSave }) => {
-    const [url, setUrl] = useState('');
-    const [confirmedUrl, setConfirmedUrl] = useState('');
-    const [title, setTitle] = useState('');
-    const [selectedIcon, setSelectedIcon] = useState(null);
-    const [iconPadding, setIconPadding] = useState(false);
-
-    useEffect(() => {
-        if (shortcut) {
-            setUrl(shortcut.url);
-            setConfirmedUrl(shortcut.url);
-            setTitle(shortcut.title);
-            setSelectedIcon(shortcut.customIcon || null);
-            setIconPadding(shortcut.iconPadding || false);
-        }
-    }, [shortcut]);
+    const [url, setUrl] = useState(shortcut?.url || '');
+    const [confirmedUrl, setConfirmedUrl] = useState(shortcut?.url || '');
+    const [title, setTitle] = useState(shortcut?.title || '');
+    const [selectedIcon, setSelectedIcon] = useState(shortcut?.customIcon || null);
+    const [iconPadding, setIconPadding] = useState(shortcut?.iconPadding || false);
 
     const normalizeUrl = (value) => {
         if (!value) return '';
@@ -56,7 +46,7 @@ const EditShortcutModal = ({ isOpen, onClose, shortcut, onSave }) => {
                 iconPadding: iconPadding
             });
             onClose();
-        } catch (err) {
+        } catch {
             alert('Invalid URL');
         }
     };

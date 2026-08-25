@@ -34,14 +34,11 @@ const MiniIcon = ({ item }) => {
 
 const FolderIcon = ({ folder, iconSize }) => {
     const previewItems = folder.children.slice(0, 9);
-    const isLarge = previewItems.length <= 4;
     const folderRef = useRef(null);
     
     // Calculate mini icon size based on container size
     // 3x3 grid or 2x2 grid
     const padding = iconSize * 0.15;
-    const contentSize = iconSize - (padding * 2);
-    
     // 动态光泽效果
     useEffect(() => {
         const element = folderRef.current;

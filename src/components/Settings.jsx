@@ -3,7 +3,8 @@ import { X, Cloud, RefreshCw, Globe, LogOut, Github, Combine } from 'lucide-reac
 import { fetchRandomPhoto, cacheImage } from '../utils/unsplash';
 import WallpaperModal from './WallpaperModal';
 import IconSelector from './IconSelector';
-import ToastContainer, { useToast } from './Toast';
+import ToastContainer from './Toast';
+import { useToast } from '../hooks/useToast';
 import syncService from '../services/syncService';
 
 const Settings = ({
@@ -14,8 +15,6 @@ const Settings = ({
     onBgUpdate,
     onAddShortcut,
     shortcuts,
-    onEditShortcut,
-    onRemoveShortcut,
     onSyncPull,
     triggerTab,
     onOpenChange
@@ -44,15 +43,27 @@ const Settings = ({
     };
 
     useEffect(() => {
-        if (triggerTab?.tab) {
+        if (!triggerTab?.tab) return;
+        const frame = requestAnimationFrame(() => {
             setActiveTab(triggerTab.tab);
             setIsOpen(true);
-        }
+        });
+        return () => cancelAnimationFrame(frame);
     }, [triggerTab]);
 
     useEffect(() => {
         onOpenChange?.(isOpen);
     }, [isOpen, onOpenChange]);
+
+    useEffect(() => {
+        const handleAuthCleared = () => {
+            setIsLoggedIn(false);
+            setUserEmail(null);
+        };
+
+        window.addEventListener('sync-auth-cleared', handleAuthCleared);
+        return () => window.removeEventListener('sync-auth-cleared', handleAuthCleared);
+    }, []);
 
     const tabTitle = activeTab === 'shortcuts' ? '链接'
         : activeTab === 'sync' ? '同步'
@@ -428,7 +439,7 @@ const AddShortcutForm = ({ onAddShortcut, showToast }) => {
             setTitle('');
             setSelectedIcon(null);
             showToast('快捷方式添加成功！', 'success');
-        } catch (err) {
+        } catch {
             showToast('URL 无效，请检查后重试。', 'error');
         }
     };
@@ -868,6 +879,16 @@ const SyncPanel = ({ email, isSyncing, onSync, onLogout, lastSync }) => {
                     <div className="text-xs text-white/60 mb-1">上次同步</div>
                     <div className="text-sm text-white">{formatLastSync(lastSync)}</div>
                 </div>
+
+                <button
+                    type="button"
+                    onClick={onSync}
+                    disabled={isSyncing}
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-sm font-medium text-white rounded-lg transition-colors shadow-lg flex items-center justify-center gap-2"
+                >
+                    <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                    {isSyncing ? '同步中...' : '立即同步'}
+                </button>
 
                 {/* Info */}
                 <div className="p-4 bg-white/5 rounded-lg border border-white/10">

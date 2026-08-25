@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getIconUrl, getAllIconUrls } from '../utils/icons';
+import { getAllIconUrls } from '../utils/icons';
 
 export const useIconSource = (shortcut) => {
     const [iconSrc, setIconSrc] = useState(null);
@@ -51,7 +51,7 @@ export const useIconSource = (shortcut) => {
                                 return;
                             }
                         }
-                    } catch (e) {
+                    } catch {
                         // Continue to next candidate
                     }
                 }
@@ -77,12 +77,12 @@ export const useIconSource = (shortcut) => {
                             if (!candidate.url.includes('google.com/s2/favicons')) {
                                 await cache.add(candidate.url);
                             }
-                        } catch (e) {
+                        } catch {
                             // If CORS fails but image loaded, we just can't cache it.
                             // This is acceptable.
                         }
                         return; // Found a working one
-                    } catch (e) {
+                    } catch {
                         // Probe failed (404 or network error), try next candidate
                         continue;
                     }

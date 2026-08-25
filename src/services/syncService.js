@@ -77,31 +77,54 @@ class SyncService {
 
     // Logout user
     async logout() {
+        const token = this.token;
+        const workerUrl = this.getWorkerUrl();
+
+        // Clear local state immediately. A slow or unavailable Worker should
+        // never leave the extension appearing to be logged in.
+        this.clearAuth();
+
         // Call server to delete token
-        if (this.token) {
+        if (token && workerUrl) {
             try {
-                const workerUrl = this.getWorkerUrl();
-                if (workerUrl) {
-                    await fetch(`${workerUrl}/api/auth/logout`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${this.token}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                }
+                await fetch(`${workerUrl}/api/auth/logout`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
             } catch (error) {
                 console.warn('Failed to delete token from server:', error);
-                // Continue with local cleanup even if server request fails
             }
         }
+    }
 
-        // Clear local data
+    // Clear authentication without making another authenticated request.
+    clearAuth() {
         this.token = null;
         this.email = null;
         localStorage.removeItem('sync_token');
         localStorage.removeItem('sync_email');
         localStorage.removeItem('last_sync');
+        window.dispatchEvent(new CustomEvent('sync-auth-cleared'));
+    }
+
+    async throwResponseError(response, fallbackMessage) {
+        let message = fallbackMessage;
+        try {
+            const error = await response.json();
+            message = error.error || fallbackMessage;
+        } catch {
+            // Keep the fallback when the endpoint does not return JSON.
+        }
+
+        if (response.status === 401) {
+            this.clearAuth();
+            throw new Error('登录已过期，请重新登录。');
+        }
+
+        throw new Error(message);
     }
 
     // Pull data from server
@@ -124,12 +147,7 @@ class SyncService {
         });
 
         if (!response.ok) {
-            if (response.status === 401) {
-                this.logout();
-                throw new Error('Session expired. Please login again.');
-            }
-            const error = await response.json();
-            throw new Error(error.error || 'Pull failed');
+            await this.throwResponseError(response, 'Pull failed');
         }
 
         const result = await response.json();
@@ -163,12 +181,7 @@ class SyncService {
         });
 
         if (!response.ok) {
-            if (response.status === 401) {
-                this.logout();
-                throw new Error('Session expired. Please login again.');
-            }
-            const error = await response.json();
-            throw new Error(error.error || 'Push failed');
+            await this.throwResponseError(response, 'Push failed');
         }
 
         const result = await response.json();
@@ -209,6 +222,8 @@ class SyncService {
         this.email = email;
         localStorage.setItem('sync_token', token);
         localStorage.setItem('sync_email', email);
+        // LoginForm controls when the authenticated UI is shown so it can
+        // finish cloud/local conflict handling before it is unmounted.
     }
 }
 

@@ -3,7 +3,7 @@ export const getIconUrl = (url) => {
     try {
         const domain = new URL(url).hostname;
         return `https://logo.clearbit.com/${domain}`;
-    } catch (e) {
+    } catch {
         return null;
     }
 };
@@ -16,7 +16,7 @@ export const getAllIconUrls = (url) => {
             { source: 'clearbit', url: `https://logo.clearbit.com/${domain}`, name: 'Clearbit' },
             { source: 'google', url: `https://www.google.com/s2/favicons?domain=${domain}&sz=128`, name: 'Google' }
         ];
-    } catch (e) {
+    } catch {
         return [];
     }
 };
@@ -29,7 +29,7 @@ export const getIconSources = (url) => {
             clearbit: `https://logo.clearbit.com/${domain}`,
             google: `https://www.google.com/s2/favicons?domain=${domain}&sz=128`
         };
-    } catch (e) {
+    } catch {
         return null;
     }
 };

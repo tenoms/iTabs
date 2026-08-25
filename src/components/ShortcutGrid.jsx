@@ -7,9 +7,7 @@ import FolderModal from './FolderModal';
 import {
     DndContext,
     closestCenter,
-    pointerWithin,
     rectIntersection,
-    getFirstCollision,
     MouseSensor,
     TouchSensor,
     useSensor,
@@ -37,11 +35,9 @@ const calculateGaps = (cols, rows) => {
     return { colGap, rowGap };
 };
 
-const ShortcutIcon = ({ shortcut, iconSize, isContextOpen, onRemove, onEdit, setContextShortcutId }) => {
-    if (shortcut.type === 'folder') {
-        return <FolderIcon folder={shortcut} iconSize={iconSize} />;
-    }
+const createFolderId = () => `folder-${Date.now()}`;
 
+const WebsiteShortcutIcon = ({ shortcut, iconSize, isContextOpen, onRemove, onEdit, setContextShortcutId }) => {
     const iconSrc = useIconSource(shortcut);
     const iconRef = useRef(null);
 
@@ -137,6 +133,13 @@ const ShortcutIcon = ({ shortcut, iconSize, isContextOpen, onRemove, onEdit, set
             )}
         </div>
     );
+};
+
+const ShortcutIcon = (props) => {
+    if (props.shortcut.type === 'folder') {
+        return <FolderIcon folder={props.shortcut} iconSize={props.iconSize} />;
+    }
+    return <WebsiteShortcutIcon {...props} />;
 };
 
 const SortableShortcutItem = ({ 
@@ -458,7 +461,7 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
             if (activeShortcut && overShortcut && activeShortcut.type !== 'folder' && overShortcut.type !== 'folder') {
                 // Create new folder
                 const newFolder = {
-                    id: `folder-${Date.now()}`,
+                    id: createFolderId(),
                     title: 'Folder',
                     type: 'folder',
                     children: [overShortcut, activeShortcut]
@@ -527,54 +530,6 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
         }
     };
 
-    const handleFolderItemMoveOut = (itemId, position) => {
-        if (!openFolder) return;
-        
-        const itemToMove = openFolder.children.find(i => i.id === itemId);
-        if (!itemToMove) return;
-
-        // Remove from folder
-        const updatedFolder = {
-            ...openFolder,
-            children: openFolder.children.filter(i => i.id !== itemId)
-        };
-        const folderIndex = shortcuts.findIndex(s => s.id === openFolder.id);
-        const newShortcuts = [...shortcuts];
-        const hasChildren = updatedFolder.children.length > 0;
-
-        const findTargetIndex = () => {
-            if (!position) return null;
-            const el = document.elementFromPoint(position.x, position.y);
-            const target = el?.closest?.('[data-shortcut-id]');
-            if (!target) return null;
-            const targetId = target.getAttribute('data-shortcut-id');
-            if (!targetId || targetId === openFolder.id) return null;
-            return newShortcuts.findIndex(s => s.id === targetId);
-        };
-        const targetIndex = findTargetIndex();
-        
-        if (hasChildren) {
-            // Update folder and insert item after
-            newShortcuts[folderIndex] = updatedFolder;
-            if (targetIndex != null && targetIndex !== -1) {
-                const insertIndex = targetIndex >= folderIndex ? targetIndex + 1 : targetIndex;
-                newShortcuts.splice(insertIndex, 0, itemToMove);
-            } else {
-                newShortcuts.splice(folderIndex + 1, 0, itemToMove);
-            }
-            setOpenFolder(updatedFolder);
-        } else {
-            // Folder is empty, remove it and replace with item
-            newShortcuts.splice(folderIndex, 1, itemToMove);
-            setOpenFolder(null);
-        }
-        
-        if (onReorder) onReorder(newShortcuts);
-        
-        // Hide folder modal but keep drag alive
-        setIsFolderModalOpen(false);
-    };
-    
     const handleOpenFolder = (folder) => {
         setOpenFolder(folder);
         setIsFolderModalOpen(true);
@@ -621,13 +576,15 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
     // Reset page when shortcuts change
     useEffect(() => {
         if (currentPage >= totalPages && totalPages > 0) {
-            setCurrentPage(totalPages - 1);
+            const frame = requestAnimationFrame(() => setCurrentPage(totalPages - 1));
+            return () => cancelAnimationFrame(frame);
         }
     }, [shortcuts.length, totalPages, currentPage]);
 
     useEffect(() => {
         if (contextShortcutId && !shortcuts.some(s => s.id === contextShortcutId)) {
-            setContextShortcutId(null);
+            const frame = requestAnimationFrame(() => setContextShortcutId(null));
+            return () => cancelAnimationFrame(frame);
         }
     }, [contextShortcutId, shortcuts]);
 
@@ -850,6 +807,7 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
             )}
 
             <EditShortcutModal
+                key={editingShortcut?.id || 'closed'}
                 isOpen={!!editingShortcut}
                 onClose={() => setEditingShortcut(null)}
                 shortcut={editingShortcut}
@@ -871,7 +829,6 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
                 folder={openFolder}
                 onUpdate={handleFolderUpdate}
                 onDelete={handleFolderDelete}
-                onMoveOut={handleFolderItemMoveOut}
                 onEditShortcut={setEditingShortcut}
             />
         </DndContext>

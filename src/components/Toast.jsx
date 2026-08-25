@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Check, X, AlertCircle } from 'lucide-react';
 
 export const Toast = ({ message, type = 'success', onClose }) => {
@@ -54,22 +54,6 @@ const ToastContainer = ({ toasts, removeToast }) => {
             ))}
         </div>
     );
-};
-
-// Hook for using toasts
-export const useToast = () => {
-    const [toasts, setToasts] = useState([]);
-
-    const showToast = (message, type = 'success') => {
-        const id = Date.now();
-        setToasts((prev) => [...prev, { id, message, type }]);
-    };
-
-    const removeToast = (id) => {
-        setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    };
-
-    return { toasts, showToast, removeToast };
 };
 
 export default ToastContainer;
