@@ -163,7 +163,7 @@ const OutsideDroppable = ({ children, onClose, isVisible }) => {
     );
 };
 
-const FolderModal = ({ isOpen, onClose, folder, onUpdate, onDelete, onMoveOut, onEditShortcut }) => {
+const FolderModal = ({ isOpen, onClose, folder, onUpdate, onDelete, onEditShortcut }) => {
     const [title, setTitle] = useState('');
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [isRendered, setIsRendered] = useState(false);
@@ -173,18 +173,28 @@ const FolderModal = ({ isOpen, onClose, folder, onUpdate, onDelete, onMoveOut, o
     const titleInputRef = useRef(null);
 
     useEffect(() => {
-        if (isOpen && folder) {
-            setCachedFolder(folder);
-            setIsRendered(true);
-            requestAnimationFrame(() => setIsVisible(true));
-        } else {
-            setIsVisible(false);
-            const timer = setTimeout(() => {
-                setIsRendered(false);
-                setCachedFolder(null);
-            }, 300);
-            return () => clearTimeout(timer);
-        }
+        let showFrame;
+        let hideTimer;
+        const frame = requestAnimationFrame(() => {
+            if (isOpen && folder) {
+                setCachedFolder(folder);
+                setTitle(folder.title || 'Folder');
+                setIsRendered(true);
+                showFrame = requestAnimationFrame(() => setIsVisible(true));
+            } else {
+                setIsVisible(false);
+                hideTimer = setTimeout(() => {
+                    setIsRendered(false);
+                    setCachedFolder(null);
+                }, 300);
+            }
+        });
+
+        return () => {
+            cancelAnimationFrame(frame);
+            if (showFrame) cancelAnimationFrame(showFrame);
+            if (hideTimer) clearTimeout(hideTimer);
+        };
     }, [isOpen, folder]);
 
     useEffect(() => {
@@ -200,12 +210,6 @@ const FolderModal = ({ isOpen, onClose, folder, onUpdate, onDelete, onMoveOut, o
     const { setNodeRef: setContentRef } = useDroppable({
         id: 'folder-modal-content',
     });
-
-    useEffect(() => {
-        if (currentFolder) {
-            setTitle(currentFolder.title || 'Folder');
-        }
-    }, [currentFolder]);
 
     useEffect(() => {
         if (isEditingTitle && titleInputRef.current) {

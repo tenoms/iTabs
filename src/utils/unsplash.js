@@ -72,8 +72,8 @@ export const cacheImage = async (url) => {
         const cache = await caches.open('bg-cache');
         await cache.add(url);
         return true;
-    } catch (err) {
-        console.error('Cache Error:', err);
+    } catch (error) {
+        console.error('Cache Error:', error);
         return false;
     }
 };
@@ -87,7 +87,7 @@ export const getCachedImage = async (url) => {
             return URL.createObjectURL(blob);
         }
         return null;
-    } catch (err) {
+    } catch {
         return null;
     }
 };

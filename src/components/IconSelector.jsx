@@ -4,8 +4,12 @@ import { getAllIconUrls } from '../utils/icons';
 
 const IconSelector = ({ url, title, onSelect, selectedIcon }) => {
     const [iconPreviews, setIconPreviews] = useState([]);
-    const [selectedSource, setSelectedSource] = useState(selectedIcon || null);
-    const [customIcon, setCustomIcon] = useState(null);
+    const selectedSource = selectedIcon?.type === 'custom'
+        ? 'custom'
+        : selectedIcon?.type === 'letter'
+            ? 'letter'
+            : selectedIcon?.source || null;
+    const customIcon = selectedIcon?.type === 'custom' ? selectedIcon.data : null;
 
     const initialLetterIcon = useMemo(() => {
         if (!url) return null;
@@ -27,40 +31,6 @@ const IconSelector = ({ url, title, onSelect, selectedIcon }) => {
             return null;
         }
     }, [url, title]);
-
-    // Keep selection in sync with external value
-    useEffect(() => {
-        if (selectedIcon?.type === 'custom') {
-            setCustomIcon(selectedIcon.data || null);
-            setSelectedSource('custom');
-        } else if (selectedIcon?.type === 'letter') {
-            setCustomIcon(null);
-            setSelectedSource('letter');
-        } else if (selectedIcon?.source) {
-            setCustomIcon(null);
-            setSelectedSource(selectedIcon.source);
-        } else {
-            setCustomIcon(null);
-            setSelectedSource(null);
-        }
-    }, [selectedIcon]);
-
-    // Separate effect to update letter icon when title changes (without reloading other icons)
-    useEffect(() => {
-        if (!url || iconPreviews.length === 0) return;
-        
-        // Update only the letter icon in the existing previews
-        setIconPreviews(prevPreviews => {
-            const newPreviews = [...prevPreviews];
-            const letterIconIndex = newPreviews.findIndex(icon => icon.source === 'letter');
-            
-            if (letterIconIndex !== -1 && initialLetterIcon) {
-                newPreviews[letterIconIndex] = initialLetterIcon;
-            }
-            
-            return newPreviews;
-        });
-    }, [initialLetterIcon, url]);
 
     useEffect(() => {
         let abort = false;
@@ -96,11 +66,9 @@ const IconSelector = ({ url, title, onSelect, selectedIcon }) => {
         };
         loadIcons();
         return () => { abort = true; };
-    }, [url]); // Only depend on url, not initialLetterIcon
+    }, [url, initialLetterIcon]);
 
     const handleIconSelect = (source, iconUrl) => {
-        setSelectedSource(source);
-        setCustomIcon(null);
         if (source === 'letter') {
             onSelect({ type: 'letter', letter: iconUrl });
         } else {
@@ -126,8 +94,6 @@ const IconSelector = ({ url, title, onSelect, selectedIcon }) => {
 
         const reader = new FileReader();
         reader.onloadend = () => {
-            setCustomIcon(reader.result);
-            setSelectedSource('custom');
             onSelect({ type: 'custom', data: reader.result });
         };
         reader.readAsDataURL(file);

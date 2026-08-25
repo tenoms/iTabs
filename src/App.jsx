@@ -9,7 +9,7 @@ import DataManagement from './components/DataManagement';
 import { Toast } from './components/Toast';
 import { Globe, Settings as SettingsIcon, Cloud, ClipboardList, StickyNote, Plus, Database } from 'lucide-react';
 
-import { fetchRandomPhoto, getCachedImage, cacheImage } from './utils/unsplash';
+import { fetchRandomPhoto, cacheImage } from './utils/unsplash';
 import { removeIconFromCache } from './utils/icons';
 
 // import { arrayMove } from '@dnd-kit/sortable';
@@ -36,7 +36,15 @@ function App() {
     };
   });
 
-  const [shortcuts, setShortcuts] = useState([]);
+  const [shortcuts, setShortcuts] = useState(() => {
+    const saved = localStorage.getItem('shortcuts');
+    if (saved) return JSON.parse(saved);
+    const defaults = [
+      { id: 1, title: 'Google', url: 'https://google.com' },
+    ];
+    localStorage.setItem('shortcuts', JSON.stringify(defaults));
+    return defaults;
+  });
   const [settingsTrigger, setSettingsTrigger] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [todos, setTodos] = useState(() => {
@@ -51,6 +59,9 @@ function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [activeNoteId, setActiveNoteId] = useState(null);
+  const resolvedActiveNoteId = notes.some(note => note.id === activeNoteId)
+    ? activeNoteId
+    : notes[0]?.id || null;
   const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [isDataManagementOpen, setIsDataManagementOpen] = useState(false);
   const [toast, setToast] = useState(null);
@@ -174,21 +185,10 @@ function App() {
     }
   }, []);
 
-  // Load shortcuts from localStorage on mount
+  // Initialize extension data and listeners on mount
   useEffect(() => {
-    const saved = localStorage.getItem('shortcuts');
-    if (saved) {
-      setShortcuts(JSON.parse(saved));
-    } else {
-      const defaults = [
-        { id: 1, title: 'Google', url: 'https://google.com' },
-      ];
-      setShortcuts(defaults);
-      localStorage.setItem('shortcuts', JSON.stringify(defaults));
-    }
-
     // Initial pull on startup
-    pullFromCloud();
+    const pullFrame = requestAnimationFrame(() => pullFromCloud());
 
     // Listen for storage changes (e.g. from Popup)
     const handleStorageChange = (e) => {
@@ -202,6 +202,7 @@ function App() {
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
+      cancelAnimationFrame(pullFrame);
       window.removeEventListener('storage', handleStorageChange);
     };
   }, [pullFromCloud]);
@@ -366,19 +367,11 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem('todo_pinned', isTodoPinned ? 'true' : 'false');
-    if (isTodoPinned) {
-      setIsTodoOpen(true);
-    }
   }, [isTodoPinned]);
 
   useEffect(() => {
     localStorage.setItem('notes', JSON.stringify(notes));
-    if (notes.length > 0 && !activeNoteId) {
-      setActiveNoteId(notes[0].id);
-    } else if (activeNoteId && !notes.some(n => n.id === activeNoteId)) {
-      setActiveNoteId(notes[0]?.id || null);
-    }
-  }, [notes, activeNoteId]);
+  }, [notes]);
 
   const handleAddTodo = (text) => {
     const newTodo = {
@@ -585,8 +578,6 @@ function App() {
         onBgUpdate={setBgUrl}
         onAddShortcut={handleAddShortcut}
         shortcuts={shortcuts}
-        onEditShortcut={handleEditShortcut}
-        onRemoveShortcut={handleRemoveShortcut}
         onSyncPull={pullFromCloud}
         triggerTab={settingsTrigger}
         onOpenChange={setIsSettingsOpen}
@@ -652,7 +643,7 @@ function App() {
       />
       <NotesPanel
         notes={notes}
-        activeNoteId={activeNoteId}
+        activeNoteId={resolvedActiveNoteId}
         onSelectNote={handleSelectNote}
         onAddNote={handleAddNote}
         onDeleteNote={handleDeleteNote}

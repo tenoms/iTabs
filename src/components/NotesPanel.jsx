@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Plus, Trash2, Check, Download, Upload, Search } from 'lucide-react';
 import { marked } from 'marked';
 
@@ -30,10 +30,11 @@ export default function NotesPanel({
   isOpen,
   onOpenChange,
 }) {
-    const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+    const [confirmingNoteId, setConfirmingNoteId] = useState(null);
     const [showPreview, setShowPreview] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const activeNote = useMemo(() => notes.find(n => n.id === activeNoteId) || null, [notes, activeNoteId]);
+    const isConfirmingDelete = confirmingNoteId === activeNoteId;
 
     // Filter notes based on search query
     const filteredNotes = useMemo(() => {
@@ -55,7 +56,7 @@ export default function NotesPanel({
     const renderedContent = useMemo(() => {
         if (!activeNote?.content) return '';
         return marked.parse(activeNote.content);
-    }, [activeNote?.content]);
+    }, [activeNote]);
 
     // 导出笔记
     const handleExportNotes = () => {
@@ -134,12 +135,8 @@ export default function NotesPanel({
     }, [isOpen, activeNote, notes, onSelectNote]);
 
     useEffect(() => {
-        setIsConfirmingDelete(false);
-    }, [activeNoteId]);
-
-    useEffect(() => {
         if (isConfirmingDelete) {
-            const timer = setTimeout(() => setIsConfirmingDelete(false), 3000);
+            const timer = setTimeout(() => setConfirmingNoteId(null), 3000);
             return () => clearTimeout(timer);
         }
     }, [isConfirmingDelete]);
@@ -239,9 +236,9 @@ export default function NotesPanel({
                                     onClick={() => {
                                         if (isConfirmingDelete) {
                                             onDeleteNote?.(activeNote.id);
-                                            setIsConfirmingDelete(false);
+                                            setConfirmingNoteId(null);
                                         } else {
-                                            setIsConfirmingDelete(true);
+                                            setConfirmingNoteId(activeNote.id);
                                         }
                                     }}
                                     className={`p-2 rounded-lg transition ${

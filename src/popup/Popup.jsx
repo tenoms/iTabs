@@ -10,16 +10,10 @@ const Popup = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
-    const [bgUrl, setBgUrl] = useState('');
+    const [bgUrl] = useState(() => localStorage.getItem('bg_url') || '');
 
     // Get current tab info and background on mount
     useEffect(() => {
-        // Load background from localStorage
-        const savedBg = localStorage.getItem('bg_url');
-        if (savedBg) {
-            setBgUrl(savedBg);
-        }
-
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             if (tabs[0]) {
                 const currentTab = tabs[0];

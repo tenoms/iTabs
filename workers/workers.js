@@ -31,10 +31,28 @@ export default {
                 return jsonResponse({ error: '未找到' }, 404, corsHeaders);
             }
         } catch (error) {
-            return jsonResponse({ error: error.message }, 500, corsHeaders);
+            const status = error instanceof HttpError ? error.status : 500;
+            if (status === 500) {
+                console.error('Worker request failed:', error);
+            }
+            return jsonResponse(
+                { error: status === 500 ? '服务器内部错误' : error.message },
+                status,
+                corsHeaders,
+            );
         }
     },
 };
+
+const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
+const TOKEN_RENEW_WINDOW_MS = 60 * 60 * 24 * 7 * 1000;
+
+class HttpError extends Error {
+    constructor(status, message) {
+        super(message);
+        this.status = status;
+    }
+}
 
 // Helper: JSON response
 function jsonResponse(data, status = 200, headers = {}) {
@@ -62,18 +80,56 @@ function generateToken() {
     return crypto.randomUUID();
 }
 
+// Store an expiry timestamp in the value as well as relying on KV expiry. This
+// lets active sessions renew only near expiry instead of writing on every call.
+async function saveToken(env, token, email) {
+    const session = {
+        email,
+        expiresAt: Date.now() + TOKEN_TTL_SECONDS * 1000,
+    };
+    await env.NewTab_KV.put(`token:${token}`, JSON.stringify(session), {
+        expirationTtl: TOKEN_TTL_SECONDS,
+    });
+}
+
 // Helper: Verify token
 async function verifyToken(request, env) {
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        throw new Error('未授权');
+        throw new HttpError(401, '未授权');
     }
 
-    const token = authHeader.substring(7);
-    const email = await env.NewTab_KV.get(`token:${token}`);
+    const token = authHeader.substring(7).trim();
+    if (!token) {
+        throw new HttpError(401, '未授权');
+    }
 
-    if (!email) {
-        throw new Error('无效的令牌');
+    const storedSession = await env.NewTab_KV.get(`token:${token}`);
+    if (!storedSession) {
+        throw new HttpError(401, '登录已过期，请重新登录');
+    }
+
+    let session;
+    try {
+        session = JSON.parse(storedSession);
+    } catch {
+        throw new HttpError(401, '登录已过期，请重新登录');
+    }
+
+    if (!session || typeof session.email !== 'string' ||
+        !Number.isFinite(Number(session.expiresAt))) {
+        throw new HttpError(401, '登录已过期，请重新登录');
+    }
+
+    const email = session.email;
+    const expiresAt = Number(session.expiresAt);
+    if (expiresAt <= Date.now()) {
+        await env.NewTab_KV.delete(`token:${token}`);
+        throw new HttpError(401, '登录已过期，请重新登录');
+    }
+
+    if (expiresAt - Date.now() <= TOKEN_RENEW_WINDOW_MS) {
+        await saveToken(env, token, email);
     }
 
     return email;
@@ -107,7 +163,7 @@ async function handleRegister(request, env, corsHeaders) {
 
     // Generate token
     const token = generateToken();
-    await env.NewTab_KV.put(`token:${token}`, email, { expirationTtl: 86400 * 30 }); // 30 days
+    await saveToken(env, token, email);
 
     return jsonResponse({ token, email }, 201, corsHeaders);
 }
@@ -136,7 +192,7 @@ async function handleLogin(request, env, corsHeaders) {
 
     // Generate token
     const token = generateToken();
-    await env.NewTab_KV.put(`token:${token}`, email, { expirationTtl: 86400 * 30 }); // 30 days
+    await saveToken(env, token, email);
 
     return jsonResponse({ token, email }, 200, corsHeaders);
 }

@@ -7,25 +7,34 @@ const Layout = ({ children, backgroundUrl, bgConfig }) => {
 
     // Preload background image
     useEffect(() => {
+        let frame;
+        let cancelled = false;
+
         if (!backgroundUrl) {
-            setImageLoaded(true);
-            return;
+            frame = requestAnimationFrame(() => {
+                setCurrentBg('');
+                setImageLoaded(true);
+            });
+            return () => cancelAnimationFrame(frame);
         }
 
-        // If same image, no need to reload
-        if (backgroundUrl === currentBg && imageLoaded) {
-            return;
-        }
-
-        setImageLoaded(false);
+        frame = requestAnimationFrame(() => setImageLoaded(false));
         const img = new Image();
         img.src = backgroundUrl;
         img.onload = () => {
+            if (cancelled) return;
             setCurrentBg(backgroundUrl);
             setImageLoaded(true);
         };
         img.onerror = () => {
+            if (cancelled) return;
+            setCurrentBg(backgroundUrl);
             setImageLoaded(true); // Show anyway even if failed
+        };
+
+        return () => {
+            cancelled = true;
+            cancelAnimationFrame(frame);
         };
     }, [backgroundUrl]);
 
