@@ -11,6 +11,7 @@ iTabs is a React/Vite Chrome new-tab extension. `src/main.jsx` mounts the page a
 - `npm run build` produces the extension bundle in `dist/`.
 - `npm run preview` serves the production bundle for a quick browser check.
 - `npm run lint` runs ESLint across JavaScript and JSX sources.
+- `npm test` runs unit tests (`src/**/*.test.js`) with Node's built-in test runner.
 
 After building, open `chrome://extensions`, enable Developer mode, and load `dist/` as an unpacked extension. Rebuild before testing the popup or new-tab override.
 
@@ -20,7 +21,7 @@ Use ES modules and functional React components. Follow the surrounding style, us
 
 ## Testing Guidelines
 
-No automated test framework is currently configured. Every change must pass `npm run lint` and `npm run build`. Manually verify the new-tab page and popup in Chrome. For UI or persistence changes, test reload behavior, `localStorage` migration, drag-and-drop, and relevant sync/offline paths. If adding tests, place them beside the source as `*.test.jsx` or under `src/__tests__/`, and add the runner command to `package.json`.
+Pure helpers in `src/utils/` have unit tests run by `npm test` (Node's built-in `node:test`, no extra dependency). Every change must pass `npm run lint`, `npm test`, and `npm run build`. Manually verify the new-tab page and popup in Chrome. For UI or persistence changes, test reload behavior, `localStorage` migration, drag-and-drop, and relevant sync/offline paths. If adding tests, place them beside the source as `*.test.jsx` or under `src/__tests__/`, and add the runner command to `package.json`.
 
 ## Commit & Pull Request Guidelines
 

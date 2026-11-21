@@ -1,26 +1,21 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Trash2, Edit2 } from 'lucide-react';
+import { DndContext, DragOverlay, useDndContext } from '@dnd-kit/core';
+import { SortableContext, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useIconSource } from '../hooks/useIconSource';
+import { useShortcutDnd } from '../hooks/useShortcutDnd';
+import { ROOT_CONTAINER, isFolder } from '../utils/shortcutTree';
 import EditShortcutModal from './EditShortcutModal';
 import FolderIcon from './FolderIcon';
-import FolderModal from './FolderModal';
-import {
-    DndContext,
-    closestCenter,
-    rectIntersection,
-    MouseSensor,
-    TouchSensor,
-    useSensor,
-    useSensors,
-    DragOverlay,
-} from '@dnd-kit/core';
-import {
-    arrayMove,
-    SortableContext,
-    rectSortingStrategy,
-    useSortable,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import FolderModal, { FolderItemTile } from './FolderModal';
+
+const PAGE_TRANSITION_MS = 300;
+
+const DROP_ANIMATION = {
+    duration: 220,
+    easing: 'cubic-bezier(0.2, 0, 0, 1)',
+};
 
 // Auto-calculate gaps based on grid size
 const calculateGaps = (cols, rows) => {
@@ -35,7 +30,14 @@ const calculateGaps = (cols, rows) => {
     return { colGap, rowGap };
 };
 
-const createFolderId = () => `folder-${Date.now()}`;
+const getCellWidth = (iconSize) => Math.max(iconSize + 40, 120);
+
+// Keeps clicks on nested controls from starting a drag on the parent cell.
+const stopDragActivation = {
+    onMouseDown: (e) => e.stopPropagation(),
+    onTouchStart: (e) => e.stopPropagation(),
+    onPointerDown: (e) => e.stopPropagation(),
+};
 
 const WebsiteShortcutIcon = ({ shortcut, iconSize, isContextOpen, onRemove, onEdit, setContextShortcutId }) => {
     const iconSrc = useIconSource(shortcut);
@@ -106,7 +108,7 @@ const WebsiteShortcutIcon = ({ shortcut, iconSize, isContextOpen, onRemove, onEd
                     <button
                         type="button"
                         className="absolute -top-2 -right-2 p-2 rounded-full bg-red-500 text-white shadow-lg hover:bg-red-400 transition z-20"
-                        onPointerDown={(e) => e.stopPropagation()}
+                        {...stopDragActivation}
                         onClick={(e) => {
                             e.stopPropagation();
                             onRemove?.(shortcut.id);
@@ -119,7 +121,7 @@ const WebsiteShortcutIcon = ({ shortcut, iconSize, isContextOpen, onRemove, onEd
                         <button
                             type="button"
                             className="w-full h-full rounded-[22px] bg-black/40 border border-white/20 text-white hover:text-blue-200 backdrop-blur-sm pointer-events-auto flex items-center justify-center transition"
-                            onPointerDown={(e) => e.stopPropagation()}
+                            {...stopDragActivation}
                             onClick={(e) => {
                                 e.stopPropagation();
                                 onEdit?.(shortcut);
@@ -136,22 +138,40 @@ const WebsiteShortcutIcon = ({ shortcut, iconSize, isContextOpen, onRemove, onEd
 };
 
 const ShortcutIcon = (props) => {
-    if (props.shortcut.type === 'folder') {
+    if (isFolder(props.shortcut)) {
         return <FolderIcon folder={props.shortcut} iconSize={props.iconSize} />;
     }
     return <WebsiteShortcutIcon {...props} />;
 };
 
-const SortableShortcutItem = ({ 
-    shortcut, 
-    iconSize, 
-    contextShortcutId, 
-    setContextShortcutId, 
-    onRemoveShortcut, 
+// Icon + title, shared by grid cells and the drag overlay.
+const ShortcutTile = ({ shortcut, iconSize, iconClassName = '', titleClassName = '', highlight = false, ...iconProps }) => (
+    <div className="flex flex-col items-center gap-3">
+        <div className={`relative transition-transform duration-200 ease-out ${iconClassName}`}>
+            <ShortcutIcon shortcut={shortcut} iconSize={iconSize} {...iconProps} />
+            {highlight && (
+                <div className="absolute -inset-2 rounded-[28px] border-2 border-white/70 bg-white/15 shadow-[0_0_24px_rgba(255,255,255,0.35)] pointer-events-none" />
+            )}
+        </div>
+        <span className={`text-sm font-medium text-white/90 drop-shadow-md truncate text-center px-1 select-none w-full transition-opacity duration-200 ${titleClassName}`}>
+            {shortcut.title}
+        </span>
+    </div>
+);
+
+const SortableShortcutItem = ({
+    shortcut,
+    iconSize,
+    scale,
+    contextShortcutId,
+    setContextShortcutId,
+    onRemoveShortcut,
     setEditingShortcut,
     onOpenFolder,
-    isMergeTarget
+    isMergeTarget,
 }) => {
+    // Icon box geometry inside the cell, used by the drag hit testing.
+    const data = useMemo(() => ({ icon: { size: iconSize, offsetTop: 0, scale } }), [iconSize, scale]);
     const {
         attributes,
         listeners,
@@ -159,32 +179,35 @@ const SortableShortcutItem = ({
         transform,
         transition,
         isDragging,
-    } = useSortable({ id: shortcut.id });
+        isSorting,
+    } = useSortable({ id: shortcut.id, data });
 
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-        zIndex: isDragging ? 50 : 'auto',
-        opacity: isDragging ? 0 : 1,
+    const isContextOpen = contextShortcutId === shortcut.id;
+    const open = () => {
+        if (isFolder(shortcut)) {
+            onOpenFolder(shortcut.id);
+        } else {
+            window.location.href = shortcut.url;
+        }
     };
 
     return (
         <div
             data-shortcut-id={shortcut.id}
             ref={setNodeRef}
-            style={{ ...style, width: `${Math.max(iconSize + 40, 120)}px` }}
+            style={{
+                transform: CSS.Translate.toString(transform),
+                transition,
+                width: `${getCellWidth(iconSize)}px`,
+                opacity: isDragging ? 0 : 1,
+                zIndex: isMergeTarget ? 20 : undefined,
+            }}
             {...attributes}
             {...listeners}
-            className="group relative flex flex-col items-center gap-3 transition-all duration-300 hover:scale-105 hover:z-10 justify-self-center h-fit touch-none"
+            className={`group relative justify-self-center h-fit touch-none ${isSorting ? '' : 'hover:z-10'}`}
             onClick={() => {
-                if (isDragging) return;
-                if (contextShortcutId === shortcut.id) return;
-                
-                if (shortcut.type === 'folder') {
-                    onOpenFolder(shortcut);
-                } else {
-                    window.location.href = shortcut.url;
-                }
+                if (isDragging || isContextOpen) return;
+                open();
             }}
             onContextMenu={(e) => {
                 e.preventDefault();
@@ -193,36 +216,39 @@ const SortableShortcutItem = ({
             tabIndex={0}
             role="button"
             onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                    if (shortcut.type === 'folder') {
-                        onOpenFolder(shortcut);
-                    } else {
-                        window.location.href = shortcut.url;
-                    }
-                }
+                if (e.key === 'Enter') open();
             }}
         >
-            <div className="relative">
-                <ShortcutIcon 
-                    shortcut={shortcut} 
-                    iconSize={iconSize} 
-                    isContextOpen={contextShortcutId === shortcut.id}
+            {/* Hover scaling lives on an inner element so it never skews drag measurements. */}
+            <div className={`transition-transform duration-300 ${isSorting ? '' : 'group-hover:scale-105'}`}>
+                <ShortcutTile
+                    shortcut={shortcut}
+                    iconSize={iconSize}
+                    iconClassName={isMergeTarget ? 'scale-110' : ''}
+                    highlight={isMergeTarget}
+                    isContextOpen={isContextOpen}
                     onRemove={onRemoveShortcut}
                     onEdit={setEditingShortcut}
                     setContextShortcutId={setContextShortcutId}
                 />
-                {isMergeTarget && (
-                    <div 
-                        className="absolute -inset-2 border-2 border-dashed border-white/50 rounded-[28px] pointer-events-none animate-pulse bg-white/10"
-                        style={{ zIndex: 60 }}
-                    />
-                )}
             </div>
-            <span className="text-sm font-medium text-white/90 drop-shadow-md truncate text-center px-1 select-none" style={{ width: '100%' }}>
-                {shortcut.title}
-            </span>
         </div>
     );
+};
+
+// Page changes move every cell, so refresh dnd-kit's cached rects once the
+// slide transition has finished.
+const DroppableRemeasurer = ({ trigger }) => {
+    const { active, measureDroppableContainers } = useDndContext();
+    const isDragging = active != null;
+
+    useEffect(() => {
+        if (!isDragging) return undefined;
+        const timer = setTimeout(() => measureDroppableContainers(), PAGE_TRANSITION_MS + 20);
+        return () => clearTimeout(timer);
+    }, [isDragging, trigger, measureDroppableContainers]);
+
+    return null;
 };
 
 const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onReorder, leftOffset = 0 }) => {
@@ -231,307 +257,76 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
     const [contextShortcutId, setContextShortcutId] = useState(null);
     const [editingShortcut, setEditingShortcut] = useState(null);
     const [responsiveCols, setResponsiveCols] = useState(cols);
-    const [activeId, setActiveId] = useState(null);
-    const [openFolder, setOpenFolder] = useState(null);
+    const [openFolderId, setOpenFolderId] = useState(null);
     const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
-    const [mergeTargetId, setMergeTargetId] = useState(null);
-    const mergeTimerRef = useRef(null);
-    const dragOutTimerRef = useRef(null);
-    const lastOverIdRef = useRef(null);
-    const lastOverIndexRef = useRef(null);
-    const lastCollisionTypeRef = useRef(null);
 
     const containerRef = useRef(null);
     const accumulatedRef = useRef(0);
     const lastTimeRef = useRef(0);
     const isChangingRef = useRef(false);
+    const totalPagesRef = useRef(1);
 
     const { colGap, rowGap } = calculateGaps(responsiveCols, rows);
     const [scale, setScale] = useState(1);
 
-    // Custom collision detection strategy
-    const collisionDetectionStrategy = useCallback((args) => {
-        // 1. Check for overlap (rectIntersection)
-        const overlapCollisions = rectIntersection(args);
-        
-        if (overlapCollisions.length > 0) {
-            lastCollisionTypeRef.current = 'overlap';
-            return overlapCollisions;
-        }
+    const itemsPerPage = responsiveCols * rows;
 
-        // 2. Fallback to proximity (closestCenter)
-        lastCollisionTypeRef.current = 'proximity';
-        return closestCenter(args);
-    }, []);
-
-    const sensors = useSensors(
-        useSensor(MouseSensor, {
-            activationConstraint: {
-                distance: 10,
-            },
-        }),
-        useSensor(TouchSensor, {
-            activationConstraint: {
-                delay: 250,
-                tolerance: 5,
-            },
-        })
-    );
-
-    const findShortcut = (id) => {
-        const shortcut = shortcuts.find(s => s.id === id);
-        if (shortcut) return { shortcut, container: 'root', index: shortcuts.indexOf(shortcut) };
-        
-        for (const s of shortcuts) {
-            if (s.type === 'folder' && s.children) {
-                const child = s.children.find(c => c.id === id);
-                if (child) return { shortcut: child, container: s.id, parent: s, index: s.children.indexOf(child) };
-            }
-        }
-        return null;
-    };
-
-    const handleDragStart = (event) => {
-        setActiveId(event.active.id);
-    };
-
-    const handleDragOver = (event) => {
-        const { active, over } = event;
-        
-        // Handle drag out of folder
-        const activeNode = findShortcut(active.id);
-        if (activeNode && activeNode.container !== 'root') {
-            // If dragging a folder item
-            if (over && over.id === 'folder-modal-outside') {
-                // Dragged out of folder!
-                if (!dragOutTimerRef.current) {
-                    dragOutTimerRef.current = setTimeout(() => {
-                        const folderId = activeNode.container;
-                        const folder = activeNode.parent;
-                        const item = activeNode.shortcut;
-                        
-                        // Remove from folder
-                        const newChildren = folder.children.filter(c => c.id !== item.id);
-                        const updatedFolder = { ...folder, children: newChildren };
-                        
-                        // Insert item into shortcuts (after the folder)
-                        const folderIndex = shortcuts.findIndex(s => s.id === folderId);
-                        const newShortcuts = [...shortcuts];
-                        
-                        if (newChildren.length === 0) {
-                            // Folder empty, replace with item
-                            newShortcuts.splice(folderIndex, 1, item);
-                            setOpenFolder(null);
-                            setIsFolderModalOpen(false);
-                        } else {
-                            newShortcuts[folderIndex] = updatedFolder;
-                            newShortcuts.splice(folderIndex + 1, 0, item);
-                            setOpenFolder(updatedFolder);
-                            setIsFolderModalOpen(false); // Close modal to allow sorting on grid
-                        }
-                        
-                        if (onReorder) onReorder(newShortcuts);
-                        dragOutTimerRef.current = null;
-                    }, 400);
-                }
-                return;
-            } else {
-                if (dragOutTimerRef.current) {
-                    clearTimeout(dragOutTimerRef.current);
-                    dragOutTimerRef.current = null;
-                }
-            }
-        }
-
-        if (!over || active.id === over.id) {
-            if (mergeTimerRef.current) {
-                clearTimeout(mergeTimerRef.current);
-                mergeTimerRef.current = null;
-            }
-            setMergeTargetId(null);
-            lastOverIdRef.current = null;
-            lastOverIndexRef.current = null;
-            return;
-        }
-
-        const currentIndex = over.data?.current?.sortable?.index ?? null;
-
-        // If over ID hasn't changed, only continue merge timer if index is stable
-        if (lastOverIdRef.current === over.id) {
-            // If we lost overlap (moved to proximity only), cancel merge
-            if (lastCollisionTypeRef.current !== 'overlap') {
-                if (mergeTimerRef.current) {
-                    clearTimeout(mergeTimerRef.current);
-                    mergeTimerRef.current = null;
-                }
-                setMergeTargetId(null);
-                return;
-            }
-
-            if (lastOverIndexRef.current !== null && currentIndex !== lastOverIndexRef.current) {
-                // Break merge when positions swap
-                if (mergeTimerRef.current) {
-                    clearTimeout(mergeTimerRef.current);
-                    mergeTimerRef.current = null;
-                }
-                setMergeTargetId(null);
-            }
-            lastOverIndexRef.current = currentIndex;
-            return;
-        }
-        
-        // Over ID changed, reset timer
-        lastOverIdRef.current = over.id;
-        lastOverIndexRef.current = currentIndex;
-
-        if (mergeTimerRef.current) {
-            clearTimeout(mergeTimerRef.current);
-            mergeTimerRef.current = null;
-        }
-        
-        setMergeTargetId(null);
-
-        const activeShortcut = shortcuts.find(s => s.id === active.id);
-        const overShortcut = shortcuts.find(s => s.id === over.id);
-
-        if (!activeShortcut || !overShortcut) {
-            return;
-        }
-
-        // Don't allow dragging folders into folders
-        if (activeShortcut.type === 'folder') {
-            return;
-        }
-
-        // Check if valid merge target
-        const isOverFolder = overShortcut.type === 'folder';
-        const isOverItem = activeShortcut.type !== 'folder' && overShortcut.type !== 'folder';
-
-        // Only allow merge if we have strict overlap
-        if ((isOverFolder || isOverItem) && lastCollisionTypeRef.current === 'overlap') {
-            mergeTimerRef.current = setTimeout(() => {
-                setMergeTargetId(over.id);
+    // Snap to page
+    const goToPage = useCallback((targetPage) => {
+        const clampedPage = Math.max(0, Math.min(totalPagesRef.current - 1, targetPage));
+        if (clampedPage !== currentPage) {
+            isChangingRef.current = true;
+            setCurrentPage(clampedPage);
+            // Allow next page change after animation
+            setTimeout(() => {
+                isChangingRef.current = false;
+                accumulatedRef.current = 0;
             }, 600);
         }
-    };
+    }, [currentPage]);
 
-    const handleDragEnd = (event) => {
-        const { active, over } = event;
-        
-        if (mergeTimerRef.current) {
-            clearTimeout(mergeTimerRef.current);
-            mergeTimerRef.current = null;
-        }
+    const {
+        items,
+        activeItem,
+        originContainerId,
+        mergeTargetId,
+        dndContextProps,
+    } = useShortcutDnd({
+        shortcuts,
+        onCommit: onReorder,
+        itemsPerPage,
+        currentPage,
+        onFlipPage: (direction) => goToPage(currentPage + direction),
+        getPagerRect: () => containerRef.current?.getBoundingClientRect() ?? null,
+        onDragOutOfFolder: () => setIsFolderModalOpen(false),
+    });
 
-        if (dragOutTimerRef.current) {
-            clearTimeout(dragOutTimerRef.current);
-            dragOutTimerRef.current = null;
-        }
+    const rootIds = useMemo(() => items.map((item) => item.id), [items]);
+    const totalPages = Math.ceil(items.length / itemsPerPage);
+    const openFolder = items.find((item) => item.id === openFolderId && isFolder(item)) ?? null;
 
-        setActiveId(null);
-        
-        const isMergeAction = mergeTargetId && over && mergeTargetId === over.id;
-        setMergeTargetId(null);
-
-        if (!over) return;
-
-        if (isMergeAction) {
-            const activeShortcut = shortcuts.find(s => s.id === active.id);
-            const overShortcut = shortcuts.find(s => s.id === over.id);
-
-            // If dropping onto a folder
-            if (overShortcut && overShortcut.type === 'folder') {
-                // Don't allow dropping a folder into a folder for now
-                if (activeShortcut.type === 'folder') return;
-
-                const updatedFolder = {
-                    ...overShortcut,
-                    children: [...(overShortcut.children || []), activeShortcut]
-                };
-                
-                const newShortcuts = shortcuts
-                    .filter(s => s.id !== active.id)
-                    .map(s => s.id === over.id ? updatedFolder : s);
-                
-                if (onReorder) onReorder(newShortcuts);
-                return;
-            }
-
-            // If dropping onto another item to create a folder
-            if (activeShortcut && overShortcut && activeShortcut.type !== 'folder' && overShortcut.type !== 'folder') {
-                // Create new folder
-                const newFolder = {
-                    id: createFolderId(),
-                    title: 'Folder',
-                    type: 'folder',
-                    children: [overShortcut, activeShortcut]
-                };
-
-                const newShortcuts = shortcuts
-                    .filter(s => s.id !== active.id)
-                    .map(s => s.id === over.id ? newFolder : s);
-                
-                if (onReorder) onReorder(newShortcuts);
-                return;
-            }
-        }
-
-        // Standard reordering
-        if (active.id !== over.id) {
-            // Check if reordering inside a folder
-            const activeNode = findShortcut(active.id);
-            const overNode = findShortcut(over.id);
-
-            if (activeNode && overNode && activeNode.container === overNode.container && activeNode.container !== 'root') {
-                const folder = activeNode.parent;
-                const oldIndex = activeNode.index;
-                const newIndex = overNode.index;
-                
-                if (oldIndex !== newIndex) {
-                    const newChildren = arrayMove(folder.children, oldIndex, newIndex);
-                    handleFolderUpdate({ ...folder, children: newChildren });
-                }
-                return;
-            }
-
-            const oldIndex = shortcuts.findIndex((s) => s.id === active.id);
-            const newIndex = shortcuts.findIndex((s) => s.id === over.id);
-            
-            if (oldIndex !== -1 && newIndex !== -1 && onReorder) {
-                onReorder(arrayMove(shortcuts, oldIndex, newIndex));
-            }
-        }
-    };
+    useLayoutEffect(() => {
+        totalPagesRef.current = totalPages;
+    }, [totalPages]);
 
     const handleFolderUpdate = (updatedFolder) => {
         if (updatedFolder.children.length === 0) {
-            if (onRemoveShortcut) {
-                onRemoveShortcut(updatedFolder.id);
-            }
-            setOpenFolder(null);
+            onRemoveShortcut?.(updatedFolder.id);
             setIsFolderModalOpen(false);
-        } else {
-            const newShortcuts = shortcuts.map(s => s.id === updatedFolder.id ? updatedFolder : s);
-            if (onReorder) onReorder(newShortcuts);
-            if (openFolder && openFolder.id === updatedFolder.id) {
-                setOpenFolder(updatedFolder);
-            }
+            return;
         }
+        onReorder?.(shortcuts.map((item) => (item.id === updatedFolder.id ? updatedFolder : item)));
     };
 
     const handleFolderDelete = () => {
-        // Delete folder and move items back to root? Or just delete everything?
-        // Let's move items back to root for safety, or just delete.
-        // User probably expects delete to delete.
         if (openFolder && onRemoveShortcut) {
             onRemoveShortcut(openFolder.id);
-            setOpenFolder(null);
             setIsFolderModalOpen(false);
         }
     };
 
-    const handleOpenFolder = (folder) => {
-        setOpenFolder(folder);
+    const handleOpenFolder = (folderId) => {
+        setOpenFolderId(folderId);
         setIsFolderModalOpen(true);
     };
 
@@ -563,14 +358,11 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
         return () => window.removeEventListener('resize', handleResize);
     }, [cols, rows, iconSize, leftOffset]);
 
-    const itemsPerPage = responsiveCols * rows;
-    const totalPages = Math.ceil(shortcuts.length / itemsPerPage);
-
     // Get all pages of shortcuts
     const pages = [];
     for (let i = 0; i < totalPages; i++) {
         const start = i * itemsPerPage;
-        pages.push(shortcuts.slice(start, start + itemsPerPage));
+        pages.push(items.slice(start, start + itemsPerPage));
     }
 
     // Reset page when shortcuts change
@@ -579,7 +371,7 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
             const frame = requestAnimationFrame(() => setCurrentPage(totalPages - 1));
             return () => cancelAnimationFrame(frame);
         }
-    }, [shortcuts.length, totalPages, currentPage]);
+    }, [items.length, totalPages, currentPage]);
 
     useEffect(() => {
         if (contextShortcutId && !shortcuts.some(s => s.id === contextShortcutId)) {
@@ -594,20 +386,6 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
         document.addEventListener('click', handleClickAway);
         return () => document.removeEventListener('click', handleClickAway);
     }, [contextShortcutId]);
-
-    // Snap to page
-    const goToPage = useCallback((targetPage) => {
-        const clampedPage = Math.max(0, Math.min(totalPages - 1, targetPage));
-        if (clampedPage !== currentPage) {
-            isChangingRef.current = true;
-            setCurrentPage(clampedPage);
-            // Allow next page change after animation
-            setTimeout(() => {
-                isChangingRef.current = false;
-                accumulatedRef.current = 0;
-            }, 600);
-        }
-    }, [totalPages, currentPage]);
 
     // Wheel handler for mouse wheel (vertical) and trackpad (horizontal)
     useEffect(() => {
@@ -681,33 +459,35 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
         return null;
     }
 
+    const cellWidth = getCellWidth(iconSize);
+    const isMerging = mergeTargetId != null;
+
     return (
         <DndContext
-            sensors={sensors}
-            collisionDetection={collisionDetectionStrategy}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDragEnd={handleDragEnd}
+            {...dndContextProps}
+            onDragStart={(event) => {
+                setContextShortcutId(null);
+                dndContextProps.onDragStart(event);
+            }}
         >
+            <DroppableRemeasurer trigger={currentPage} />
+
             {/* Swipeable Container */}
             <div
                 ref={containerRef}
                 className="w-full overflow-x-hidden"
             >
-                <div
-                    className="flex transition-transform duration-300 ease-out"
-                    style={{
-                        transform: `translateX(${-currentPage * 100}%)`,
-                    }}
-                >
-                    {pages.map((pageShortcuts, pageIndex) => (
-                        <div
-                            key={pageIndex}
-                            className="shrink-0 w-full flex justify-center"
-                        >
-                            <SortableContext 
-                                items={pageShortcuts.map(s => s.id)} 
-                                strategy={rectSortingStrategy}
+                <SortableContext items={rootIds}>
+                    <div
+                        className="flex transition-transform duration-300 ease-out"
+                        style={{
+                            transform: `translateX(${-currentPage * 100}%)`,
+                        }}
+                    >
+                        {pages.map((pageShortcuts, pageIndex) => (
+                            <div
+                                key={pageIndex}
+                                className="shrink-0 w-full flex justify-center"
                             >
                                 <div
                                     className="grid px-4 py-4 transition-transform duration-300"
@@ -723,10 +503,11 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
                                     }}
                                 >
                                     {pageShortcuts.map((shortcut) => (
-                                        <SortableShortcutItem 
+                                        <SortableShortcutItem
                                             key={shortcut.id}
                                             shortcut={shortcut}
                                             iconSize={iconSize}
+                                            scale={scale}
                                             contextShortcutId={contextShortcutId}
                                             setContextShortcutId={setContextShortcutId}
                                             onRemoveShortcut={onRemoveShortcut}
@@ -736,33 +517,32 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
                                         />
                                     ))}
                                 </div>
-                            </SortableContext>
-                        </div>
-                    ))}
-                </div>
+                            </div>
+                        ))}
+                    </div>
+                </SortableContext>
             </div>
 
-            <DragOverlay>
-                {activeId ? (
-                    <div style={{ transform: 'scale(1.05)' }}>
-                         {(() => {
-                             const node = findShortcut(activeId);
-                             const shortcut = node ? node.shortcut : null;
-                             if (!shortcut) return null;
-                             return (
-                                 <div className="flex flex-col items-center gap-3">
-                                     <ShortcutIcon 
-                                         shortcut={shortcut} 
-                                         iconSize={iconSize} 
-                                         isContextOpen={false}
-                                     />
-                                     <span className="text-sm font-medium text-white/90 drop-shadow-md truncate w-full text-center px-1 select-none">
-                                         {shortcut.title}
-                                     </span>
-                                 </div>
-                             )
-                         })()}
-                    </div>
+            <DragOverlay dropAnimation={DROP_ANIMATION}>
+                {activeItem ? (
+                    originContainerId === ROOT_CONTAINER ? (
+                        <div
+                            className="cursor-grabbing"
+                            style={{ width: `${cellWidth}px`, transform: `scale(${scale})`, transformOrigin: 'top left' }}
+                        >
+                            <ShortcutTile
+                                shortcut={activeItem}
+                                iconSize={iconSize}
+                                iconClassName={isMerging ? 'scale-90 opacity-80' : 'scale-105'}
+                                titleClassName={isMerging ? 'opacity-0' : ''}
+                                isContextOpen={false}
+                            />
+                        </div>
+                    ) : (
+                        <div className="p-2 cursor-grabbing">
+                            <FolderItemTile shortcut={activeItem} />
+                        </div>
+                    )
                 ) : null}
             </DragOverlay>
 
@@ -814,8 +594,7 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
                 onSave={(updated) => {
                     if (openFolder && openFolder.children?.some(c => c.id === updated.id)) {
                         const newChildren = openFolder.children.map(c => c.id === updated.id ? updated : c);
-                        const updatedFolder = { ...openFolder, children: newChildren };
-                        handleFolderUpdate(updatedFolder);
+                        handleFolderUpdate({ ...openFolder, children: newChildren });
                     } else {
                         onEditShortcut?.(updated);
                     }
@@ -824,7 +603,7 @@ const ShortcutGrid = ({ config, shortcuts, onRemoveShortcut, onEditShortcut, onR
             />
 
             <FolderModal
-                isOpen={isFolderModalOpen}
+                isOpen={isFolderModalOpen && openFolder != null}
                 onClose={() => setIsFolderModalOpen(false)}
                 folder={openFolder}
                 onUpdate={handleFolderUpdate}
